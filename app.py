@@ -1,11 +1,12 @@
 import streamlit as st
+from openai import OpenAI
+
 from model import (
     extract_text,
     chunk_text,
     get_embeddings,
     VectorStore,
-    answer_query,
-    get_client
+    answer_query
 )
 
 st.set_page_config(page_title="Document Q&A Assistant")
@@ -14,9 +15,9 @@ st.title("📄 Document Q&A Assistant")
 st.markdown("Ask conceptual questions about your uploaded files.")
 
 # -----------------------------
-# API Client
+# API Client (FIXED)
 # -----------------------------
-client = get_client(st.secrets["OPENAI_API_KEY"])
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # -----------------------------
 # Session State
@@ -28,7 +29,7 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # -----------------------------
-# Sample Dataset Download
+# Sample Dataset
 # -----------------------------
 st.subheader("📥 Try Sample Dataset")
 
@@ -41,10 +42,10 @@ Tablet,Electronics,4.3,400
 """
 
 st.download_button(
-    label="Download Sample Product Dataset",
-    data=sample_csv,
-    file_name="sample_products.csv",
-    mime="text/csv"
+    "Download Sample Dataset",
+    sample_csv,
+    "sample_products.csv",
+    "text/csv"
 )
 
 # -----------------------------
@@ -61,7 +62,7 @@ uploaded_files = st.file_uploader(
 # -----------------------------
 if st.button("Process Files"):
     if not uploaded_files:
-        st.warning("Please upload at least one file.")
+        st.warning("Please upload files first.")
     else:
         with st.spinner("Processing files... ⏳"):
             all_text = ""
@@ -80,7 +81,7 @@ if st.button("Process Files"):
         st.success("Files processed successfully!")
 
 # -----------------------------
-# Chat Interface
+# Chat Input
 # -----------------------------
 st.subheader("💬 Ask Questions")
 
@@ -90,16 +91,15 @@ if query and st.session_state.vector_store:
     with st.spinner("Thinking... 🤖"):
         answer, sources = answer_query(client, query, st.session_state.vector_store)
 
-    # Save history
     st.session_state.chat_history.append((query, answer, sources))
 
 # -----------------------------
-# Display Chat History
+# Chat History
 # -----------------------------
-for i, (q, a, s) in enumerate(st.session_state.chat_history[::-1]):
+for q, a, s in reversed(st.session_state.chat_history):
     st.markdown(f"### 🧑 You: {q}")
     st.markdown(f"**🤖 Answer:** {a}")
 
     with st.expander("📄 Sources"):
-        for j, src in enumerate(s):
-            st.write(f"{j+1}. {src[:300]}...")
+        for i, src in enumerate(s):
+            st.write(f"{i+1}. {src[:300]}...")
