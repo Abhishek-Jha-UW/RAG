@@ -1,16 +1,9 @@
 import faiss
 import numpy as np
-from openai import OpenAI
 from typing import List
 import pandas as pd
 from PyPDF2 import PdfReader
 import docx
-
-# -----------------------------
-# Client
-# -----------------------------
-def get_client(api_key):
-    return OpenAI(api_key=api_key)
 
 # -----------------------------
 # Text Extraction
@@ -37,8 +30,7 @@ def extract_text(file):
         doc = docx.Document(file)
         return "\n".join([p.text for p in doc.paragraphs])
 
-    else:
-        return ""
+    return ""
 
 # -----------------------------
 # Chunking
@@ -96,7 +88,7 @@ You are a helpful assistant.
 
 Answer ONLY using the provided context.
 - If answer not found → say "Not found in documents"
-- Keep answer concise and structured (bullet points if needed)
+- Keep answer concise and structured (bullet points if helpful)
 
 Context:
 {context}
