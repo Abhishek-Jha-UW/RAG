@@ -1,12 +1,13 @@
 # 📄 Document Q&A Assistant (RAG System)
 
-A Streamlit-based Retrieval-Augmented Generation (RAG) application that allows users to upload documents (CSV, Excel, PDF) and ask conceptual questions using natural language.
+A Retrieval-Augmented Generation (RAG) application that allows users to upload documents (CSV, Excel, PDF) and ask conceptual questions using natural language.
+It enables you to upload multiple and confidential data files and use them to get insights wihtout revealing them to LLMs. This preserves confidentiality.
 
 ---
 
 ##  Features
 
-- Upload multiple files (CSV, Excel, PDF)
+- Upload multiple files (CSV, Excel, PDF, Word)
 - Ask natural language questions
 - Context-aware answers using LLMs
 - Source attribution for transparency
