@@ -95,8 +95,14 @@ def answer_query(query, vector_store):
     context = "\n\n".join([r["text"] for r in results])
 
     prompt = f"""
-Answer ONLY from context.
-If not found → say "Not found in documents"
+You are an intelligent assistant designed to answer questions using uploaded documents and your own knowledge.
+
+Guidelines:
+1. Prioritize information from the provided context.
+2. If the context contains relevant information, base your answer primarily on it.
+3. If the context is incomplete or insufficient, you may use your general knowledge to provide a helpful answer.
+4. Clearly distinguish when you are using information beyond the provided context.
+5. Keep answers clear, concise, and well-structured.
 
 Context:
 {context}
@@ -106,7 +112,6 @@ Question:
 
 Answer:
 """
-
     res = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
