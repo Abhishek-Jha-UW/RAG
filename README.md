@@ -1,7 +1,7 @@
 # 📄 Document Q&A Assistant (RAG System)
 
-A Retrieval-Augmented Generation (RAG) application that allows users to upload documents (CSV, Excel, PDF) and ask conceptual questions using natural language.
-It enables you to upload multiple and confidential data files and use them to get insights wihtout revealing them to LLMs. This preserves confidentiality.
+A Retrieval-Augmented Generation (RAG) application that allows users to upload documents (CSV, Excel, PDF, Word) and ask conceptual questions using natural language.
+It enables you to upload multiple and confidential data files and use them to get insights wihtout revealing them to LLMs. This preserves confidentiality and get the correct response based on your data.
 
 ---
 
