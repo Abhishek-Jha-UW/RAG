@@ -1,4 +1,5 @@
 import os
+import streamlit as st
 import faiss
 import numpy as np
 from openai import OpenAI
@@ -6,7 +7,7 @@ from typing import List
 import pandas as pd
 from PyPDF2 import PdfReader
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # -----------------------------
 # Text Extraction
