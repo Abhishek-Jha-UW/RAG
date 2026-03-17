@@ -1,6 +1,4 @@
 import streamlit as st
-from openai import OpenAI
-
 from model import (
     extract_text,
     chunk_text,
@@ -11,13 +9,12 @@ from model import (
 
 st.set_page_config(page_title="Document Q&A Assistant")
 
+# -----------------------------
+# Title
+# -----------------------------
 st.title("📄 Document Q&A Assistant")
 st.markdown("Ask conceptual questions about your uploaded files.")
-
-# -----------------------------
-# API Client (FIXED)
-# -----------------------------
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+st.markdown("⚠️ *Best for text-based insights, not heavy calculations.*")
 
 # -----------------------------
 # Session State
@@ -42,10 +39,10 @@ Tablet,Electronics,4.3,400
 """
 
 st.download_button(
-    "Download Sample Dataset",
-    sample_csv,
-    "sample_products.csv",
-    "text/csv"
+    label="Download Sample Product Dataset",
+    data=sample_csv,
+    file_name="sample_products.csv",
+    mime="text/csv"
 )
 
 # -----------------------------
@@ -62,7 +59,7 @@ uploaded_files = st.file_uploader(
 # -----------------------------
 if st.button("Process Files"):
     if not uploaded_files:
-        st.warning("Please upload files first.")
+        st.warning("Please upload at least one file.")
     else:
         with st.spinner("Processing files... ⏳"):
             all_text = ""
@@ -71,17 +68,21 @@ if st.button("Process Files"):
                 all_text += extract_text(file)
 
             chunks = chunk_text(all_text)
-            embeddings = get_embeddings(client, chunks)
 
-            vector_store = VectorStore(embeddings.shape[1])
-            vector_store.add(embeddings, chunks)
+            if len(chunks) == 0:
+                st.error("No readable content found in files.")
+            else:
+                embeddings = get_embeddings(chunks)
 
-            st.session_state.vector_store = vector_store
+                vector_store = VectorStore(embeddings.shape[1])
+                vector_store.add(embeddings, chunks)
+
+                st.session_state.vector_store = vector_store
 
         st.success("Files processed successfully!")
 
 # -----------------------------
-# Chat Input
+# Chat Section
 # -----------------------------
 st.subheader("💬 Ask Questions")
 
@@ -89,16 +90,22 @@ query = st.text_input("Enter your question:")
 
 if query and st.session_state.vector_store:
     with st.spinner("Thinking... 🤖"):
-        answer, sources = answer_query(client, query, st.session_state.vector_store)
+        answer, sources = answer_query(query, st.session_state.vector_store)
 
     st.session_state.chat_history.append((query, answer, sources))
 
 # -----------------------------
-# Chat History
+# Clear Chat Button
+# -----------------------------
+if st.button("🗑️ Clear Chat"):
+    st.session_state.chat_history = []
+
+# -----------------------------
+# Display Chat
 # -----------------------------
 for q, a, s in reversed(st.session_state.chat_history):
     st.markdown(f"### 🧑 You: {q}")
-    st.markdown(f"**🤖 Answer:** {a}")
+    st.markdown(f"**🤖 Answer:**\n{a}")
 
     with st.expander("📄 Sources"):
         for i, src in enumerate(s):
