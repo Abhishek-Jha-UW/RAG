@@ -1,9 +1,16 @@
+import streamlit as st
+from openai import OpenAI
 import faiss
 import numpy as np
 from typing import List
 import pandas as pd
 from PyPDF2 import PdfReader
 import docx
+
+# -----------------------------
+# OpenAI Client (Streamlit Secrets)
+# -----------------------------
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # -----------------------------
 # Text Extraction
@@ -33,7 +40,7 @@ def extract_text(file):
     return ""
 
 # -----------------------------
-# Chunking
+# Chunking (with overlap)
 # -----------------------------
 def chunk_text(text, chunk_size=500, overlap=100):
     words = text.split()
@@ -45,10 +52,11 @@ def chunk_text(text, chunk_size=500, overlap=100):
     return chunks
 
 # -----------------------------
-# Embeddings
+# Embeddings (cheap model)
 # -----------------------------
-def get_embeddings(client, texts: List[str]):
+def get_embeddings(texts: List[str]):
     embeddings = []
+
     for text in texts:
         response = client.embeddings.create(
             model="text-embedding-3-small",
@@ -77,8 +85,8 @@ class VectorStore:
 # -----------------------------
 # Answer Query
 # -----------------------------
-def answer_query(client, query, vector_store):
-    query_embedding = get_embeddings(client, [query])
+def answer_query(query, vector_store):
+    query_embedding = get_embeddings([query])
     relevant_chunks = vector_store.search(query_embedding)
 
     context = "\n\n".join(relevant_chunks)
@@ -86,9 +94,11 @@ def answer_query(client, query, vector_store):
     prompt = f"""
 You are a helpful assistant.
 
-Answer ONLY using the provided context.
-- If answer not found → say "Not found in documents"
-- Keep answer concise and structured (bullet points if helpful)
+Rules:
+- Answer ONLY using the context
+- If not found → say "Not found in documents"
+- Keep answer concise
+- Use bullet points if helpful
 
 Context:
 {context}
