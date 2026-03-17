@@ -2,103 +2,101 @@ import streamlit as st
 from openai import OpenAI
 import faiss
 import numpy as np
-from typing import List
 import pandas as pd
 from PyPDF2 import PdfReader
 import docx
 
-# -----------------------------
-# OpenAI Client (Streamlit Secrets)
-# -----------------------------
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # -----------------------------
-# Text Extraction
+# Extract Text (with filename)
 # -----------------------------
 def extract_text(file):
     name = file.name.lower()
+    text = ""
 
-    if name.endswith(".csv"):
-        df = pd.read_csv(file)
-        return df.to_string(index=False)
+    try:
+        if name.endswith(".csv"):
+            df = pd.read_csv(file)
+            text = df.to_string(index=False)
 
-    elif name.endswith(".xlsx"):
-        df = pd.read_excel(file)
-        return df.to_string(index=False)
+        elif name.endswith(".xlsx"):
+            df = pd.read_excel(file)
+            text = df.to_string(index=False)
 
-    elif name.endswith(".pdf"):
-        reader = PdfReader(file)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() or ""
-        return text
+        elif name.endswith(".pdf"):
+            reader = PdfReader(file)
+            for page in reader.pages:
+                text += page.extract_text() or ""
 
-    elif name.endswith(".docx"):
-        doc = docx.Document(file)
-        return "\n".join([p.text for p in doc.paragraphs])
+        elif name.endswith(".docx"):
+            doc = docx.Document(file)
+            text = "\n".join([p.text for p in doc.paragraphs])
 
-    return ""
+    except Exception as e:
+        st.error(f"Error reading {file.name}: {e}")
+
+    return text
 
 # -----------------------------
-# Chunking (with overlap)
+# Chunking with metadata
 # -----------------------------
-def chunk_text(text, chunk_size=500, overlap=100):
+def chunk_text(text, source, chunk_size=300, overlap=50):
     words = text.split()
     chunks = []
 
     for i in range(0, len(words), chunk_size - overlap):
-        chunks.append(" ".join(words[i:i+chunk_size]))
+        chunk = " ".join(words[i:i+chunk_size])
+        chunks.append({
+            "text": chunk,
+            "source": source
+        })
 
     return chunks
 
 # -----------------------------
-# Embeddings (cheap model)
+# Embeddings
 # -----------------------------
-def get_embeddings(texts: List[str]):
+def get_embeddings(texts):
     embeddings = []
 
-    for text in texts:
-        response = client.embeddings.create(
+    for t in texts:
+        res = client.embeddings.create(
             model="text-embedding-3-small",
-            input=text
+            input=t
         )
-        embeddings.append(response.data[0].embedding)
+        embeddings.append(res.data[0].embedding)
 
     return np.array(embeddings).astype("float32")
 
 # -----------------------------
-# Vector Store
+# Vector Store with metadata
 # -----------------------------
 class VectorStore:
     def __init__(self, dim):
         self.index = faiss.IndexFlatL2(dim)
-        self.text_chunks = []
+        self.data = []
 
     def add(self, embeddings, chunks):
         self.index.add(embeddings)
-        self.text_chunks.extend(chunks)
+        self.data.extend(chunks)
 
     def search(self, query_embedding, k=5):
         D, I = self.index.search(query_embedding, k)
-        return [self.text_chunks[i] for i in I[0]]
+        return [self.data[i] for i in I[0]]
 
 # -----------------------------
 # Answer Query
 # -----------------------------
 def answer_query(query, vector_store):
     query_embedding = get_embeddings([query])
-    relevant_chunks = vector_store.search(query_embedding)
+    results = vector_store.search(query_embedding)
 
-    context = "\n\n".join(relevant_chunks)
+    context = "\n\n".join([r["text"] for r in results])
 
     prompt = f"""
-You are a helpful assistant.
-
-Rules:
-- Answer ONLY using the context
-- If not found → say "Not found in documents"
-- Keep answer concise
-- Use bullet points if helpful
+Answer ONLY from context.
+If not found → say "Not found in documents"
 
 Context:
 {context}
@@ -109,10 +107,10 @@ Question:
 Answer:
 """
 
-    response = client.chat.completions.create(
+    res = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2
     )
 
-    return response.choices[0].message.content, relevant_chunks
+    return res.choices[0].message.content, results
