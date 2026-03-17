@@ -1,46 +1,61 @@
-import os
-import streamlit as st
 import faiss
 import numpy as np
+import streamlit as st
 from openai import OpenAI
 from typing import List
 import pandas as pd
 from PyPDF2 import PdfReader
+import docx
 
+# -----------------------------
+# Client
+# -----------------------------
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # -----------------------------
 # Text Extraction
 # -----------------------------
-def extract_text_from_csv(file):
-    df = pd.read_csv(file)
-    return df.to_string(index=False)
+def extract_text(file):
+    name = file.name.lower()
 
-def extract_text_from_excel(file):
-    df = pd.read_excel(file)
-    return df.to_string(index=False)
+    if name.endswith(".csv"):
+        df = pd.read_csv(file)
+        return df.to_string(index=False)
 
-def extract_text_from_pdf(file):
-    reader = PdfReader(file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
-    return text
+    elif name.endswith(".xlsx"):
+        df = pd.read_excel(file)
+        return df.to_string(index=False)
+
+    elif name.endswith(".pdf"):
+        reader = PdfReader(file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+        return text
+
+    elif name.endswith(".docx"):
+        doc = docx.Document(file)
+        return "\n".join([p.text for p in doc.paragraphs])
+
+    else:
+        return ""
 
 # -----------------------------
 # Chunking
 # -----------------------------
-def chunk_text(text, chunk_size=500):
+def chunk_text(text, chunk_size=500, overlap=100):
     words = text.split()
     chunks = []
-    for i in range(0, len(words), chunk_size):
+
+    for i in range(0, len(words), chunk_size - overlap):
         chunks.append(" ".join(words[i:i+chunk_size]))
+
     return chunks
 
 # -----------------------------
 # Embeddings
 # -----------------------------
-def get_embeddings(texts: List[str]):
+def get_embeddings(client, texts: List[str]):
     embeddings = []
     for text in texts:
         response = client.embeddings.create(
@@ -48,10 +63,11 @@ def get_embeddings(texts: List[str]):
             input=text
         )
         embeddings.append(response.data[0].embedding)
+
     return np.array(embeddings).astype("float32")
 
 # -----------------------------
-# FAISS Index
+# Vector Store
 # -----------------------------
 class VectorStore:
     def __init__(self, dim):
@@ -67,10 +83,10 @@ class VectorStore:
         return [self.text_chunks[i] for i in I[0]]
 
 # -----------------------------
-# Query Answering
+# Answer Query
 # -----------------------------
-def answer_query(query, vector_store):
-    query_embedding = get_embeddings([query])
+def answer_query(client, query, vector_store):
+    query_embedding = get_embeddings(client, [query])
     relevant_chunks = vector_store.search(query_embedding)
 
     context = "\n\n".join(relevant_chunks)
@@ -78,8 +94,9 @@ def answer_query(query, vector_store):
     prompt = f"""
 You are a helpful assistant.
 
-Answer the question using ONLY the context below.
-If the answer is not present, say "I could not find this in the documents."
+Answer ONLY using the provided context.
+- If answer not found → say "Not found in documents"
+- Keep answer concise and structured (bullet points if needed)
 
 Context:
 {context}
@@ -93,7 +110,7 @@ Answer:
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0
+        temperature=0.2
     )
 
     return response.choices[0].message.content, relevant_chunks
