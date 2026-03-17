@@ -1,6 +1,5 @@
 import faiss
 import numpy as np
-import streamlit as st
 from openai import OpenAI
 from typing import List
 import pandas as pd
@@ -10,7 +9,8 @@ import docx
 # -----------------------------
 # Client
 # -----------------------------
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+def get_client(api_key):
+    return OpenAI(api_key=api_key)
 
 # -----------------------------
 # Text Extraction
