@@ -1,7 +1,13 @@
 import streamlit as st
 from model import extract_text, chunk_text, get_embeddings, VectorStore, answer_query
 
+st.set_page_config(page_title="Document Q&A", layout="wide")
+
+# -----------------------------
+# Title
+# -----------------------------
 st.title("📄 Document Q&A Assistant")
+st.markdown("Analyze your documents and ask intelligent questions.")
 
 # -----------------------------
 # Session State
@@ -13,53 +19,76 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # -----------------------------
-# Upload
+# Sidebar
 # -----------------------------
-files = st.file_uploader("Upload files", accept_multiple_files=True)
+with st.sidebar:
+    st.header("Controls")
+
+    if st.button("Reset"):
+        st.session_state.vector_store = None
+        st.session_state.chat_history = []
+        st.success("App reset complete.")
+
+# -----------------------------
+# Upload Section
+# -----------------------------
+st.subheader("Upload Documents")
+
+files = st.file_uploader(
+    "Upload CSV, Excel, PDF, or Word files",
+    accept_multiple_files=True
+)
 
 # -----------------------------
 # Process Files
 # -----------------------------
 if st.button("Process Files"):
-    all_chunks = []
+    if not files:
+        st.warning("Please upload at least one file.")
+    else:
+        all_chunks = []
 
-    with st.spinner("Processing..."):
-        for file in files:
-            text = extract_text(file)
+        with st.spinner("Processing files..."):
+            for file in files:
+                text = extract_text(file)
 
-            st.write(f"📄 {file.name} → {len(text)} characters")
+                st.write(f"{file.name} — {len(text)} characters")
 
-            if text.strip() == "":
-                st.warning(f"No text found in {file.name}")
-                continue
+                if text.strip() == "":
+                    st.warning(f"No readable text in {file.name}")
+                    continue
 
-            chunks = chunk_text(text, file.name)
-            st.write(f"Chunks created: {len(chunks)}")
+                chunks = chunk_text(text, file.name)
+                st.write(f"Chunks created: {len(chunks)}")
 
-            all_chunks.extend(chunks)
+                all_chunks.extend(chunks)
 
         if len(all_chunks) == 0:
-            st.error("No valid content found.")
+            st.error("No valid content found in uploaded files.")
         else:
-            texts = [c["text"] for c in all_chunks]
-            embeddings = get_embeddings(texts)
+            with st.spinner("Creating embeddings..."):
+                texts = [c["text"] for c in all_chunks]
+                embeddings = get_embeddings(texts)
 
-            vs = VectorStore(embeddings.shape[1])
-            vs.add(embeddings, all_chunks)
+                vs = VectorStore(embeddings.shape[1])
+                vs.add(embeddings, all_chunks)
 
-            st.session_state.vector_store = vs
-            st.success("Processing complete!")
+                st.session_state.vector_store = vs
+
+            st.success("Documents processed successfully. You can now ask questions.")
 
 # -----------------------------
-# Ask Question
+# Question Section
 # -----------------------------
-query = st.text_input("Ask a question")
+st.subheader("Ask Questions")
+
+query = st.text_input("Enter your question")
 
 if st.button("Ask"):
     if not st.session_state.vector_store:
-        st.warning("Please process files first.")
-    elif not query:
-        st.warning("Enter a question.")
+        st.warning("Please process documents first.")
+    elif not query.strip():
+        st.warning("Enter a valid question.")
     else:
         with st.spinner("Thinking..."):
             answer, sources = answer_query(query, st.session_state.vector_store)
@@ -67,12 +96,23 @@ if st.button("Ask"):
         st.session_state.chat_history.append((query, answer, sources))
 
 # -----------------------------
-# Show Chat
+# Conversation Section
 # -----------------------------
-for q, a, s in reversed(st.session_state.chat_history):
-    st.markdown(f"**You:** {q}")
-    st.markdown(f"**Answer:** {a}")
+if st.session_state.chat_history:
+    st.subheader("Conversation")
 
-    with st.expander("Sources"):
-        for r in s:
-            st.write(f"📄 {r['source']}: {r['text'][:200]}...")
+    for q, a, s in reversed(st.session_state.chat_history):
+        st.markdown("**You**")
+        st.write(q)
+
+        st.markdown("**Assistant**")
+        st.write(a)
+
+        if s:
+            with st.expander("View Sources"):
+                for r in s:
+                    source_info = f"{r['source']} (Chunk {r.get('chunk_id', '-')})"
+                    st.markdown(f"**{source_info}**")
+                    st.write(r["text"][:300] + "...")
+        else:
+            st.info("No supporting document chunks found.")
