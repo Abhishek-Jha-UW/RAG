@@ -42,7 +42,7 @@ def _ensure_adv_defaults(cfg0: dict) -> None:
         "adv_chunk_w": int(cfg0["chunk_words"]),
         "adv_chunk_o": int(cfg0["chunk_overlap"]),
         "adv_rows_per": int(cfg0["tabular_rows_per_chunk"]),
-        "adv_strict": True,
+        "adv_strict": False,
         "adv_rewrite": False,
         "adv_temp": float(cfg0["temperature"]),
     }
@@ -184,7 +184,9 @@ You get **source citations** so you can verify claims against the original mater
 ### Grounding
 
 - **Strict**: answer only from retrieved text; say when context is insufficient.
-- **Relaxed**: may add a short, labeled general-knowledge note if helpful.
+- **Relaxed** (default when you open the app): prioritize retrieved passages with citations; may add a short **General knowledge** note when helpful.
+
+Turn strict mode on under **Advanced settings** when you want document-only answers.
 
 ### Privacy note
 
