@@ -7,7 +7,7 @@ import streamlit as st
 
 from config_loader import load_config, merge_config
 from generation import answer_query
-from ingestion import assign_chunk_ids, corpus_manifest, dedupe_chunks, ingest_uploaded_file, load_demo_chunks
+from ingestion import assign_chunk_ids, corpus_manifest, dedupe_chunks, ingest_uploaded_file
 from llm_client import get_openai_api_key
 from retrieval import rebuild_store_from_chunks
 
@@ -15,7 +15,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("rag_app")
 
 ROOT = Path(__file__).resolve().parent
-SAMPLE_DIR = ROOT / "sample_data"
 
 st.set_page_config(page_title="Analyst RAG Copilot", layout="wide")
 
@@ -29,6 +28,27 @@ if "pending_user" not in st.session_state:
     st.session_state.pending_user = None
 if "cfg_sidebar" not in st.session_state:
     st.session_state.cfg_sidebar = {}
+
+
+def _ensure_adv_defaults(cfg0: dict) -> None:
+    """One-time defaults for advanced widgets (session_state keys)."""
+    defaults = {
+        "adv_final_k": int(cfg0["final_k"]),
+        "adv_retrieval_pool": int(cfg0["retrieval_pool"]),
+        "adv_min_cos": float(cfg0["min_cosine_similarity"]),
+        "adv_use_hybrid": bool(cfg0["use_hybrid"]),
+        "adv_use_mmr": bool(cfg0["use_mmr"]),
+        "adv_mmr_lambda": float(cfg0["mmr_lambda"]),
+        "adv_chunk_w": int(cfg0["chunk_words"]),
+        "adv_chunk_o": int(cfg0["chunk_overlap"]),
+        "adv_rows_per": int(cfg0["tabular_rows_per_chunk"]),
+        "adv_strict": True,
+        "adv_rewrite": False,
+        "adv_temp": float(cfg0["temperature"]),
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 
 def effective_config() -> dict:
@@ -87,126 +107,262 @@ except Exception as e:  # noqa: BLE001
     st.caption(str(e))
     st.stop()
 
+cfg0 = load_config(ROOT / "config.yaml")
+_ensure_adv_defaults(cfg0)
+
+with st.sidebar:
+    st.markdown("### Analyst RAG Copilot")
+    st.caption("Use **your own files** so you can judge answers against familiar data.")
+    if st.button("Reset session", type="secondary", help="Clears chat, corpus, and advanced controls"):
+        st.session_state.messages = []
+        st.session_state.all_chunks = []
+        st.session_state.vector_store = None
+        st.session_state.pending_user = None
+        st.session_state.cfg_sidebar = {}
+        for adv_key in (
+            "adv_final_k",
+            "adv_retrieval_pool",
+            "adv_min_cos",
+            "adv_use_hybrid",
+            "adv_use_mmr",
+            "adv_mmr_lambda",
+            "adv_chunk_w",
+            "adv_chunk_o",
+            "adv_rows_per",
+            "adv_strict",
+            "adv_rewrite",
+            "adv_temp",
+        ):
+            st.session_state.pop(adv_key, None)
+        _ensure_adv_defaults(cfg0)
+        st.success("Session cleared.")
+        st.rerun()
+
 st.title("Analyst RAG Copilot")
 st.caption(
-    "Hybrid retrieval (dense + BM25), MMR diversification, strict grounding mode, "
-    "and transparent source cards — tuned for tabular + narrative documents."
+    "Ask questions in plain English — answers are grounded in **your** uploads with cited sources."
 )
 
-cfg0 = load_config(ROOT / "config.yaml")
-sb = st.sidebar
-sb.header("Retrieval")
-st.session_state.cfg_sidebar["final_k"] = sb.slider(
-    "Chunks in context (final_k)", 3, 16, int(cfg0["final_k"])
-)
-st.session_state.cfg_sidebar["retrieval_pool"] = sb.slider(
-    "Candidate pool size", 20, 200, int(cfg0["retrieval_pool"]), step=10
-)
-st.session_state.cfg_sidebar["min_cosine_similarity"] = sb.slider(
-    "Min cosine similarity", 0.05, 0.55, float(cfg0["min_cosine_similarity"]), 0.01
-)
-st.session_state.cfg_sidebar["use_hybrid"] = sb.toggle(
-    "Hybrid BM25 + dense (RRF)", value=bool(cfg0["use_hybrid"])
-)
-st.session_state.cfg_sidebar["use_mmr"] = sb.toggle("MMR diversify results", value=bool(cfg0["use_mmr"]))
-st.session_state.cfg_sidebar["mmr_lambda"] = sb.slider(
-    "MMR λ (relevance vs diversity)", 0.1, 0.9, float(cfg0["mmr_lambda"]), 0.05
-)
+tab_chat, tab_about = st.tabs(["Ask questions", "How this RAG works"])
 
-sb.header("Chunking (next ingest)")
-chunk_w = sb.slider("Target chunk size (words)", 120, 500, int(cfg0["chunk_words"]), 10)
-chunk_o = sb.slider("Chunk overlap (words)", 0, 120, int(cfg0["chunk_overlap"]), 5)
-rows_per = sb.slider("Tabular rows per chunk", 10, 120, int(cfg0["tabular_rows_per_chunk"]), 5)
+with tab_about:
+    emb_m = str(cfg0.get("embedding_model", "text-embedding-3-small"))
+    chat_m = str(cfg0.get("chat_model", "gpt-4o-mini"))
+    rw_m = str(cfg0.get("rewrite_model", chat_m))
 
-sb.header("Generation")
-strict = sb.toggle("Strict grounding (no outside knowledge)", value=True)
-use_rewrite = sb.toggle("LLM query rewrite (extra API call)", value=False)
-temp = sb.slider("Answer temperature", 0.0, 0.7, float(cfg0["temperature"]), 0.01)
+    st.markdown(
+        """
+### What is RAG?
 
-if sb.button("Reset app state", type="secondary"):
-    st.session_state.messages = []
-    st.session_state.all_chunks = []
-    st.session_state.vector_store = None
-    st.session_state.pending_user = None
-    st.session_state.cfg_sidebar = {}
-    st.success("State cleared.")
-    st.rerun()
+**Retrieval-Augmented Generation (RAG)** combines search with a language model: the app **finds relevant excerpts**
+from **your** documents, passes them to the model as **context**, and asks it to answer from that evidence.
+You get **source citations** so you can verify claims against the original material.
 
-cfg = effective_config()
+### Pipeline in this app
 
-left, right = st.columns([0.44, 0.56], gap="large")
+1. **Ingest** — CSV / Excel / PDF / Word / text files are read into structured text (tables keep columns and row ranges).
+2. **Chunk** — Text is split into overlapping segments with metadata (file, sheet, rows, etc.).
+3. **Embed** — Each chunk is encoded as a vector using an OpenAI embedding model.
+4. **Index** — Vectors are stored in **FAISS** for similarity search; **BM25** adds keyword matching when hybrid mode is on.
+5. **Retrieve** — Your question is embedded; top passages are selected (with optional diversity).
+6. **Generate** — A chat model reads those passages and responds, citing `[1]`, `[2]`, … when strict grounding is enabled.
+"""
+    )
+    st.markdown(
+        f"""
+### Stack details
 
-with left:
-    st.subheader("Corpus")
+| Component | Implementation |
+| --------- | -------------- |
+| **Embeddings** | `{emb_m}` |
+| **Vector index** | **FAISS** `IndexFlatIP` on normalized vectors (cosine-style similarity) |
+| **Hybrid retrieval** | Dense embeddings + **BM25** merged with **RRF** |
+| **Diversity** | **MMR** (Maximal Marginal Relevance) |
+| **Chat model** | `{chat_m}` |
+| **Optional query rewrite** | `{rw_m}` (off by default — see Advanced settings) |
+
+### Grounding
+
+- **Strict**: answer only from retrieved text; say when context is insufficient.
+- **Relaxed**: may add a short, labeled general-knowledge note if helpful.
+
+### Privacy note
+
+Uploaded content is processed in session memory. Embeddings and answers use the **OpenAI API**; retrieved **snippets**
+(not necessarily entire files) are sent as context. Review OpenAI’s policies for your use case.
+"""
+    )
+
+with tab_chat:
+    with st.expander("What should I upload?", expanded=False):
+        st.markdown(
+            """
+| Format | When to use it |
+| ------ | -------------- |
+| **CSV / Excel** | Structured metrics, sales, surveys — includes automatic **column profiles** and **row-range chunks**. |
+| **PDF / DOCX / TXT** | Narratives: policies, methodology, definitions. |
+
+**Why use your own data?** When you know the ground truth, you can validate answers using the **Sources** expander under each reply.
+Pairing a spreadsheet with a short methodology note (TXT/DOCX) often improves definition-style questions.
+"""
+        )
+
+    st.markdown("### Step 1 — Upload and index")
+
     files = st.file_uploader(
-        "Upload CSV, XLSX, PDF, DOCX, or TXT",
+        "Drop files here, then click **Process uploads**",
         type=["csv", "xlsx", "xlsm", "pdf", "docx", "txt"],
         accept_multiple_files=True,
     )
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("Process uploads", type="primary"):
-            if not files:
-                st.warning("Upload at least one supported file.")
-            else:
-                combined: list = []
-                errs: list[str] = []
-                for f in files:
-                    ch, err = ingest_uploaded_file(
-                        f,
-                        rows_per,
-                        chunk_words=chunk_w,
-                        chunk_overlap=chunk_o,
-                    )
-                    if err:
-                        errs.append(f"{f.name}: {err}")
-                    combined.extend(ch)
-                combined = dedupe_chunks(combined)
-                assign_chunk_ids(combined)
-                if not combined:
-                    st.error("No usable chunks produced.")
-                    for e in errs:
-                        st.warning(e)
-                else:
-                    for e in errs:
-                        if e:
-                            st.warning(e)
-                    rebuild_index_from_chunks(combined, cfg)
-                    st.success(f"Indexed {len(combined)} chunks from {len(files)} file(s).")
+    b1, b2 = st.columns(2)
+    with b1:
+        process_clicked = st.button("Process uploads", type="primary")
+    with b2:
+        rebuild_clicked = st.button(
+            "Rebuild index",
+            help="Re-embed the corpus in memory after changing chunking or retrieval-related advanced settings.",
+        )
 
-    with c2:
-        if st.button("Load demo corpus"):
-            demo_chunks, demo_errs = load_demo_chunks(
-                SAMPLE_DIR,
-                rows_per,
-                chunk_words=chunk_w,
-                chunk_overlap=chunk_o,
-            )
-            for e in demo_errs:
-                if e:
+    with st.expander("Advanced settings (optional)", expanded=False):
+        st.caption("Defaults are fine for exploring RAG. Change these only if you want to experiment.")
+        st.markdown("##### Retrieval")
+        st.session_state.adv_final_k = st.slider(
+            "Chunks passed to the model (final_k)",
+            3,
+            16,
+            value=int(st.session_state.adv_final_k),
+        )
+        st.session_state.adv_retrieval_pool = st.slider(
+            "Candidate pool size",
+            20,
+            200,
+            value=int(st.session_state.adv_retrieval_pool),
+            step=10,
+        )
+        st.session_state.adv_min_cos = st.slider(
+            "Minimum cosine similarity",
+            0.05,
+            0.55,
+            value=float(st.session_state.adv_min_cos),
+            step=0.01,
+        )
+        st.session_state.adv_use_hybrid = st.toggle(
+            "Hybrid BM25 + dense (RRF)",
+            value=bool(st.session_state.adv_use_hybrid),
+        )
+        st.session_state.adv_use_mmr = st.toggle(
+            "MMR diversify results",
+            value=bool(st.session_state.adv_use_mmr),
+        )
+        st.session_state.adv_mmr_lambda = st.slider(
+            "MMR λ (relevance vs diversity)",
+            0.1,
+            0.9,
+            value=float(st.session_state.adv_mmr_lambda),
+            step=0.05,
+        )
+
+        st.markdown("##### Chunking (next Process uploads)")
+        st.session_state.adv_chunk_w = st.slider(
+            "Target chunk size (words)",
+            120,
+            500,
+            value=int(st.session_state.adv_chunk_w),
+            step=10,
+        )
+        st.session_state.adv_chunk_o = st.slider(
+            "Chunk overlap (words)",
+            0,
+            120,
+            value=int(st.session_state.adv_chunk_o),
+            step=5,
+        )
+        st.session_state.adv_rows_per = st.slider(
+            "Tabular rows per chunk",
+            10,
+            120,
+            value=int(st.session_state.adv_rows_per),
+            step=5,
+        )
+
+        st.markdown("##### Generation")
+        st.session_state.adv_strict = st.toggle(
+            "Strict grounding (no outside knowledge)",
+            value=bool(st.session_state.adv_strict),
+            help="Requires citations; refuses unsupported guesses.",
+        )
+        st.session_state.adv_rewrite = st.toggle(
+            "LLM query rewrite (extra API call)",
+            value=bool(st.session_state.adv_rewrite),
+        )
+        st.session_state.adv_temp = st.slider(
+            "Answer temperature",
+            0.0,
+            0.7,
+            value=float(st.session_state.adv_temp),
+            step=0.01,
+        )
+
+    # Sync cfg_sidebar after expander widgets run (rerun uses updated session values).
+    st.session_state.cfg_sidebar["final_k"] = int(st.session_state.adv_final_k)
+    st.session_state.cfg_sidebar["retrieval_pool"] = int(st.session_state.adv_retrieval_pool)
+    st.session_state.cfg_sidebar["min_cosine_similarity"] = float(st.session_state.adv_min_cos)
+    st.session_state.cfg_sidebar["use_hybrid"] = bool(st.session_state.adv_use_hybrid)
+    st.session_state.cfg_sidebar["use_mmr"] = bool(st.session_state.adv_use_mmr)
+    st.session_state.cfg_sidebar["mmr_lambda"] = float(st.session_state.adv_mmr_lambda)
+
+    chunk_w = int(st.session_state.adv_chunk_w)
+    chunk_o = int(st.session_state.adv_chunk_o)
+    rows_per = int(st.session_state.adv_rows_per)
+    strict = bool(st.session_state.adv_strict)
+    use_rewrite = bool(st.session_state.adv_rewrite)
+    temp = float(st.session_state.adv_temp)
+    cfg = effective_config()
+
+    if process_clicked:
+        if not files:
+            st.warning("Upload at least one supported file.")
+        else:
+            combined: list = []
+            errs: list[str] = []
+            for f in files:
+                ch, err = ingest_uploaded_file(
+                    f,
+                    rows_per,
+                    chunk_words=chunk_w,
+                    chunk_overlap=chunk_o,
+                )
+                if err:
+                    errs.append(f"{f.name}: {err}")
+                combined.extend(ch)
+            combined = dedupe_chunks(combined)
+            assign_chunk_ids(combined)
+            if not combined:
+                st.error("No usable chunks produced.")
+                for e in errs:
                     st.warning(e)
-            if not demo_chunks:
-                st.error("Demo folder is empty or unreadable.")
             else:
-                rebuild_index_from_chunks(demo_chunks, cfg)
-                st.success(f"Loaded demo: {len(demo_chunks)} chunks.")
+                for e in errs:
+                    if e:
+                        st.warning(e)
+                rebuild_index_from_chunks(combined, cfg)
+                st.success(f"Indexed **{len(combined)}** chunks from **{len(files)}** file(s). You can chat below.")
 
-    with c3:
-        if st.button("Rebuild index", help="Re-embed in-memory corpus with current sidebar settings"):
-            if not st.session_state.all_chunks:
-                st.warning("No corpus in memory — process uploads or load demo first.")
-            else:
-                rebuild_index_from_chunks(st.session_state.all_chunks, cfg)
-                st.success("Index rebuilt.")
+    if rebuild_clicked:
+        if not st.session_state.all_chunks:
+            st.warning("No corpus in memory — process uploads first.")
+        else:
+            rebuild_index_from_chunks(st.session_state.all_chunks, cfg)
+            st.success("Index rebuilt with current settings.")
 
     if st.session_state.all_chunks:
         st.markdown("**Corpus summary**")
         st.dataframe(corpus_manifest(st.session_state.all_chunks), use_container_width=True, hide_index=True)
 
-        sources = sorted({c["source"] for c in st.session_state.all_chunks})
-        drop = st.selectbox("Remove a source from corpus", options=["(none)"] + sources)
-        if st.button("Remove selected source") and drop != "(none)":
+        sources_set = sorted({c["source"] for c in st.session_state.all_chunks})
+        drop = st.selectbox("Remove one file from the corpus", options=["(none)"] + sources_set)
+        if st.button("Remove selected file") and drop != "(none)":
             filt = [c for c in st.session_state.all_chunks if c.get("source") != drop]
             assign_chunk_ids(filt)
             if not filt:
@@ -217,19 +373,44 @@ with left:
                 rebuild_index_from_chunks(filt, cfg)
             st.rerun()
     else:
-        st.info("No corpus loaded yet — upload files or load the demo.")
+        st.info("Upload documents above, then ask questions in Step 2.")
 
-with right:
-    st.subheader("Conversation")
+    st.divider()
+
+    st.markdown("### Step 2 — Chat with your data")
+
     vs = st.session_state.vector_store
 
     for m in st.session_state.messages:
         _render_message(m)
 
     if not vs or vs.index.ntotal == 0:
-        st.info("Process documents or load the demo to enable Q&A.")
+        st.info("Finish Step 1 (**Process uploads**) to enable chat.")
 
-    prompt = st.chat_input("Ask a grounded question about your corpus…")
+    ctrl1, ctrl2 = st.columns(2)
+    with ctrl1:
+        if st.button(
+            "Regenerate last answer",
+            disabled=len(st.session_state.messages) < 2,
+        ):
+            msgs = st.session_state.messages
+            if len(msgs) >= 2 and msgs[-1]["role"] == "assistant" and msgs[-2]["role"] == "user":
+                user_q = msgs[-2]["content"]
+                msgs.pop()
+                msgs.pop()
+                st.session_state.pending_user = user_q
+                st.rerun()
+    with ctrl2:
+        last = next((m for m in reversed(st.session_state.messages) if m["role"] == "assistant"), None)
+        if last:
+            st.download_button(
+                "Download last answer (.txt)",
+                data=last.get("content", ""),
+                file_name="last_answer.txt",
+                mime="text/plain",
+            )
+
+    prompt = st.chat_input("Ask a question about your uploaded documents…")
 
     if st.session_state.pending_user:
         prompt = st.session_state.pending_user
@@ -269,31 +450,8 @@ with right:
         )
         st.rerun()
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button(
-            "Regenerate last answer",
-            disabled=len(st.session_state.messages) < 2,
-        ):
-            msgs = st.session_state.messages
-            if len(msgs) >= 2 and msgs[-1]["role"] == "assistant" and msgs[-2]["role"] == "user":
-                user_q = msgs[-2]["content"]
-                msgs.pop()
-                msgs.pop()
-                st.session_state.pending_user = user_q
-                st.rerun()
-    with col_b:
-        last = next((m for m in reversed(st.session_state.messages) if m["role"] == "assistant"), None)
-        if last:
-            st.download_button(
-                "Download last answer (.txt)",
-                data=last.get("content", ""),
-                file_name="last_answer.txt",
-                mime="text/plain",
-            )
-
 st.divider()
 st.caption(
-    "Tip: combine a CSV with a short methodology note (TXT/DOCX). "
-    "Strict grounding reduces hallucinations but may refuse more when context is thin."
+    "Tip: open **How this RAG works** for embeddings, FAISS, and grounding details. "
+    "Use **Advanced settings** only if you want to tune retrieval."
 )
