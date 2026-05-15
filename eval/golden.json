@@ -1,0 +1,10 @@
+[
+  {
+    "query": "Which product appears in the demo sales table?",
+    "relevant_sources_substring": ["demo_sales", "Widget"]
+  },
+  {
+    "query": "What does qty mean in the demo documentation?",
+    "relevant_sources_substring": ["qty", "units sold"]
+  }
+]
