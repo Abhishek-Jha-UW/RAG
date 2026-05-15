@@ -1,0 +1,32 @@
+# RAG defaults — override in app sidebar or env RAG_CONFIG_PATH
+embedding_model: text-embedding-3-small
+chat_model: gpt-4o-mini
+rewrite_model: gpt-4o-mini
+
+chunk_words: 300
+chunk_overlap: 50
+tabular_rows_per_chunk: 45
+
+# Dense retrieval
+retrieval_pool: 80
+final_k: 8
+min_cosine_similarity: 0.2
+
+# Hybrid BM25 + dense (RRF)
+use_hybrid: true
+rrf_k: 60
+bm25_top_n: 80
+
+# MMR diversification on normalized embeddings
+use_mmr: true
+mmr_lambda: 0.55
+
+# Optional LLM query rewrite (extra API call)
+query_rewrite: false
+
+max_context_chars: 7000
+embedding_batch_size: 256
+temperature: 0.12
+
+# Weak retrieval warning when best score below this (cosine)
+weak_retrieval_threshold: 0.32

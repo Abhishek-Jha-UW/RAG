@@ -1,7 +1,7 @@
 # 📄 Document Q&A Assistant (RAG System)
 
 A Retrieval-Augmented Generation (RAG) application that allows users to upload documents (CSV, Excel, PDF, Word) and ask conceptual questions using natural language.
-It enables you to upload multiple and confidential data files and use them to get insights wihtout revealing them to LLMs. This preserves confidentiality and get the correct response based on your data.
+It enables you to upload multiple and confidential data files and use them to get insights without revealing full files to third parties: only retrieved passages are sent to the model API along with your question. Tune strict grounding in the app when you need citation-only answers.
 
 ---
 
@@ -30,3 +30,20 @@ It enables you to upload multiple and confidential data files and use them to ge
 
 - Not optimized for heavy numerical or mathematical queries
 - Best suited for conceptual and text-based analysis
+
+---
+
+## Run locally
+
+- Install: `pip install -r requirements.txt`
+- Secrets: set `OPENAI_API_KEY` in `.streamlit/secrets.toml` or the environment (Streamlit Cloud: **Settings → Secrets**).
+- App: `streamlit run app.py`
+- Demo corpus: `sample_data/` (use **Load demo corpus** in the sidebar).
+
+## Project layout (modules)
+
+- `app.py` — Streamlit UI
+- `ingestion.py`, `retrieval.py`, `generation.py`, `config_loader.py`, `llm_client.py`
+- `model.py` — re-exports for scripts/notebooks
+- `eval/eval_retrieval.py` — optional retrieval smoke check (`OPENAI_API_KEY` required)
+- Tests: `pytest` from this folder (`pytest.ini` sets `pythonpath`)
