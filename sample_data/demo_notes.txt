@@ -1,1 +1,13 @@
+Portfolio Demo — Regional Sales Notes (fictional)
 
+Executive summary
+- Revenue is tracked in USD. The leadership team reviews month-over-month changes by region.
+- "Widget C" is positioned as the premium SKU; marketing expects higher average revenue per unit.
+
+Definitions
+- qty: units sold in the month for that region and product combination.
+- revenue_usd: recognized revenue for the line item (not cumulative across months).
+
+Analyst guidance
+- When comparing regions, prefer totals within the same month to avoid seasonality confusion.
+- If a question asks for a metric not present in the table (for example profit margin), state that the column is not available instead of inferring it.

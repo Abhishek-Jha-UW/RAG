@@ -1,0 +1,11 @@
+region,product,qty,revenue_usd,month
+North,Widget A,120,5400.50,2025-01
+North,Widget B,80,3200.00,2025-01
+South,Widget A,95,4275.25,2025-01
+South,Widget C,200,8900.00,2025-01
+East,Widget B,150,6000.00,2025-02
+East,Widget A,60,2700.00,2025-02
+West,Widget C,110,4895.00,2025-02
+North,Widget C,140,6230.00,2025-03
+South,Widget B,70,2800.00,2025-03
+West,Widget A,130,5850.75,2025-03
